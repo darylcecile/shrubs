@@ -1,7 +1,7 @@
 {
   "name": "@shrubs/studio",
   "type": "module",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [

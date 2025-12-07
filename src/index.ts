@@ -30,15 +30,13 @@ export function defineStudioConfig<const Config extends IStudioConfig>(config: C
 		return c.get(name) as CollectionByName<N>;
 	}
 
-	const connector = config.remote?.connect();
-
 	return {
 		_: config,
 		__: Object.fromEntries(config.collections.map(col => [col.name, col])) as {
 			[K in CollectionNames]: CollectionByName<K>
 		},
 		getCollection,
-		getRemote: async () => connector
+		getRemote: async () => config.remote?.connect()
 	}
 }
 
