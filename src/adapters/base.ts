@@ -4,12 +4,13 @@ export interface IAdapter {
 	context?: any;
 
 	// Connect to the backend service
-	connect(): Promise<boolean>;
+	connect(): Promise<this>;
 	// Disonnect from the backend service
 	disconnect(): Promise<boolean>;
 
 	// manage files
 	read(path: string): Promise<string>;
+	readDir(path: string): Promise<string[]>;
 	write(path: string, content: string): Promise<boolean>;
 	remove(path: string): Promise<boolean>;
 

@@ -38,6 +38,9 @@ export const Secret = {
 		return this.from(value as unknown as V);
 	},
 	reveal<V>(secret: Secret<V>): V {
+		if (secretPointers.has(secret) === false) {
+			return secret as unknown as V;
+		}
 		const value = secretPointers.get(secret);
 		if (value === undefined) {
 			throw new Error("Invalid secret");
