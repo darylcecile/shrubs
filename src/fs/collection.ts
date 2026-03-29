@@ -129,7 +129,8 @@ export class Collection<N extends string, A, B> {
 			const entryPath = slugMap.get(slug);
 
 			if (!entryPath) {
-				throw new Error(`🚨 Entry with slug "${slug}" not found in collection "${this.#init.name}".`);
+				const mapJson = JSON.stringify(Object.fromEntries(slugMap), null, 2);
+				throw new Error(`🚨 Entry with slug "${slug}" not found in collection "${this.#init.name}". ${mapJson}`);
 			}
 
 			const adapter = this.#init.adapter!;
