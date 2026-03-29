@@ -1,6 +1,6 @@
 # @shrubs/studio
 
-A typed content-collection library for structured markdown/MDX content — with support for both local filesystem and remote sources.
+A typed content collection library for Markdown and MDX content from either the local filesystem or adapter-backed remote sources.
 
 ## Installation
 
@@ -8,219 +8,223 @@ A typed content-collection library for structured markdown/MDX content — with 
 bun add @shrubs/studio
 ```
 
-## Defining Collections
-
-### Filesystem (default)
-
-By default, collections read `.md` / `.mdx` files from a local directory:
+## Package Exports
 
 ```ts
-import { Collection } from '@shrubs/studio';
+import { Collection, defineStudioConfig, RemoteAdapter } from "@shrubs/studio";
+import { GitHubAdapter } from "@shrubs/studio/adapters/github";
+import { Secret } from "@shrubs/studio/util";
+```
+
+`GitHubAdapter` and `Secret` are not exported from the package root.
+
+## Filesystem Collections
+
+Collections default to `source: "fs"`, so local content only needs a name and a path.
+
+```ts
+import { Collection } from "@shrubs/studio";
 
 const posts = Collection.define({
-  name: 'posts',
-  path: './content/posts',
+  name: "posts",
+  path: "./content/posts",
 });
 
-// Get all entries
 const entries = await posts.getEntries();
-
-// Get a single entry by slug (filename without extension)
-const entry = await posts.getEntry('hello-world');
-const metadata = await posts.getEntryMetadata('hello-world');
+const entry = await posts.getEntry("hello-world");
+const metadata = await posts.getEntryMetadata("hello-world");
 const allMetadata = await posts.getEntriesMetadata();
 
-console.log(entry.slug);     // 'hello-world'
-console.log(entry.metadata); // parsed front-matter
-console.log(metadata);       // parsed front-matter only
-console.log(entry.content);  // markdown body
-console.log(entry.readTime); // e.g. '3 minutes'
+console.log(entries.length);
+console.log(entry.slug); // "hello-world"
+console.log(entry.metadata); // parsed front matter
+console.log(entry.content); // markdown body
+console.log(entry.readTime); // "1 minute read", "2 minutes", etc.
+console.log(metadata);
+console.log(allMetadata);
 ```
 
-### Remote Sources
-
-When your content lives behind an API or in a database, use `source: 'remote'` together with an adapter.
-
-The adapter tells the collection how to list entries and how to load a single entry. There are two ways to create one:
-
-#### `RemoteAdapter.from()` — URL + headers
-
-The quickest way to connect to a REST API. Provide a base URL and optional headers (e.g. for auth). The adapter uses the native `fetch` API under the hood.
+For filesystem collections, `getSlugMap()` returns the internal slug-to-path map:
 
 ```ts
-import { Collection } from '@shrubs/studio';
-import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
+const slugMap = posts.getSlugMap();
+console.log(slugMap.get("hello-world"));
+```
 
-const adapter = RemoteAdapter.from({
-  url: 'https://api.example.com/content',
-  headers: {
-    'Authorization': `Bearer ${process.env.API_TOKEN}`,
+## Typed Metadata
+
+`schema.metadata` accepts any Standard Schema-compatible validator, such as `zod` or `valibot`. Parsed front matter is validated and returned with the schema output type.
+
+```ts
+import { Collection } from "@shrubs/studio";
+import { z } from "zod";
+
+const metadataSchema = z.object({
+  title: z.string(),
+  tags: z.array(z.string()).default([]),
+  featured: z.boolean().default(false),
+});
+
+const posts = Collection.define({
+  name: "posts",
+  path: "./content/posts",
+  schema: {
+    metadata: metadataSchema,
+  },
+});
+
+const metadata = await posts.getEntryMetadata("hello-world");
+metadata.featured; // boolean
+```
+
+If you prefer another validator, the only requirement is Standard Schema compatibility.
+
+## Remote Collections
+
+Remote collections must set `source: "remote"` and provide an adapter.
+
+```ts
+import { Collection, RemoteAdapter } from "@shrubs/studio";
+
+const adapter = new RemoteAdapter({
+  async listItemKeys(path) {
+    console.log(path); // "/blog/posts"
+    return ["hello-world", "getting-started"];
+  },
+  async getItem(slug) {
+    if (slug === "hello-world") {
+      return "---\ntitle: Hello World\n---\n\nWelcome.";
+    }
+
+    return "---\ntitle: Getting Started\n---\n\nDocs.";
+  },
+  async getMetadata(slug) {
+    return { title: slug === "hello-world" ? "Hello World" : "Getting Started" };
+  },
+  async listItemMetadata() {
+    return [
+      { title: "Hello World" },
+      { title: "Getting Started" },
+    ];
   },
 });
 
 const posts = Collection.define({
-  name: 'posts',
-  path: '/blog/posts',
-  source: 'remote',
+  name: "posts",
+  path: "/blog/posts",
+  source: "remote",
+  adapter,
+});
+
+const entries = await posts.getEntries();
+const entry = await posts.getEntry("hello-world");
+const metadata = await posts.getEntryMetadata("hello-world");
+```
+
+Adapter behavior:
+
+- `listItemKeys(path)` returns the item keys for the collection.
+- `getItem(path)` returns the raw Markdown or MDX for one item.
+- `getMetadata(path)` is optional and lets metadata be fetched without loading the full document.
+- `listItemMetadata(path)` is optional and lets collection metadata be fetched in one call.
+- `getSlugMap()` is not supported for adapter-backed collections.
+
+### `RemoteAdapter.from`
+
+`RemoteAdapter.from()` builds a fetch-based adapter from a base URL.
+
+```ts
+import { Collection, RemoteAdapter } from "@shrubs/studio";
+
+const adapter = RemoteAdapter.from({
+  url: "https://api.example.com/content",
+  headers: {
+    Authorization: `Bearer ${process.env.API_TOKEN}`,
+  },
+});
+
+const posts = Collection.define({
+  name: "posts",
+  path: "/blog/posts",
+  source: "remote",
   adapter,
 });
 
 const entries = await posts.getEntries();
 ```
 
-> **How it works:** When the collection loads, the adapter fetches the listing path
-> (e.g. `GET https://api.example.com/content/blog/posts`) and expects a JSON array
-> of entry slugs back (e.g. `["hello-world", "getting-started"]`).
-> It then fetches each entry individually to retrieve its raw markdown content.
+The listing request goes to `https://api.example.com/content/blog/posts` and should return a JSON array such as:
 
-#### `new RemoteAdapter()` — custom item + listing handlers
+```json
+["hello-world.md", "getting-started.mdx"]
+```
 
-For full control, provide:
+Each returned value is joined onto the collection path, so the adapter will read:
 
-- `getItem(slug)` to return the raw markdown for one entry
-- `listItemKeys(path)` to return the available entry slugs for the collection
-- `getMetadata(slug)` to return metadata for one entry (optional)
-- `listItemMetadata(path)` to return metadata for the collection listing (optional)
+```text
+/blog/posts/hello-world.md
+/blog/posts/getting-started.mdx
+```
 
-##### Example: Fetching from a remote API with custom auth
+## GitHub Adapter
+
+The GitHub adapter uses the GitHub contents API through Octokit.
 
 ```ts
-import { Collection } from '@shrubs/studio';
-import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
+import { Collection, defineStudioConfig } from "@shrubs/studio";
+import { GitHubAdapter } from "@shrubs/studio/adapters/github";
+import { Secret } from "@shrubs/studio/util";
 
-const adapter = new RemoteAdapter({
-  getItem: async (slug) => {
-    const token = await getAccessToken(); // your auth logic
-
-    const res = await fetch(`https://cms.example.com/articles/${slug}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-
-    if (!res.ok) {
-      throw new Error(`CMS request failed: ${res.status}`);
-    }
-
-    return res.text();
-  },
-  listItemKeys: async (path) => {
-    const token = await getAccessToken();
-
-    const res = await fetch(`https://cms.example.com${path}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-
-    if (!res.ok) {
-      throw new Error(`CMS request failed: ${res.status}`);
-    }
-
-    return res.json() as Promise<string[]>;
-  },
+const github = new GitHubAdapter({
+  repo: "octocat/my-content",
+  branch: "content",
+  token: Secret.fromEnv("GITHUB_TOKEN"),
 });
 
 const posts = Collection.define({
-  name: 'posts',
-  path: '/articles',
-  source: 'remote',
-  adapter,
+  name: "posts",
+  path: "./content/posts",
+  source: "remote",
+  adapter: github,
 });
+
+const studio = defineStudioConfig({
+  collections: [posts],
+});
+
+const entries = await studio.getCollection("posts").getEntries();
 ```
 
-##### Example: Loading content from a SQL database with Drizzle ORM
+Notes:
 
-You can use the adapter to bridge any data source, including a SQL database.
-
-```ts
-import { Collection } from '@shrubs/studio';
-import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
-import { db } from './db';           // your Drizzle instance
-import { posts } from './db/schema'; // your Drizzle table
-import { eq } from 'drizzle-orm';
-
-const adapter = new RemoteAdapter({
-  getItem: async (slug) => {
-    const [row] = await db
-      .select()
-      .from(posts)
-      .where(eq(posts.slug, slug))
-      .limit(1);
-
-    if (!row) throw new Error(`Post not found: ${slug}`);
-
-    // Reconstruct markdown with YAML front-matter
-    const frontMatter = [
-      '---',
-      `title: ${row.title}`,
-      `date: ${row.date}`,
-      `tags: [${row.tags.join(', ')}]`,
-      '---',
-    ].join('\n');
-
-    return `${frontMatter}\n\n${row.content}`;
-  },
-  listItemKeys: async () => {
-    const rows = await db.select({ slug: posts.slug }).from(posts);
-    return rows.map((row) => row.slug);
-  },
-});
-
-const blogPosts = Collection.define({
-  name: 'posts',
-  path: '/blog/posts',
-  source: 'remote',
-  adapter,
-});
-
-// Works exactly the same as a filesystem collection
-const allPosts = await blogPosts.getEntries();
-const single = await blogPosts.getEntry('my-first-post');
-```
+- `repo` must be in `owner/repo` format.
+- `branch` defaults to `"main"`.
+- `token` defaults to `Secret.fromEnv("GITHUB_TOKEN")`.
+- `connect()` ensures the configured branch exists before reads.
+- The adapter also exposes `writeFile()`, `remove()`, `commit()`, and `hasPendingChanges()` for workflows that need write access.
 
 ## Studio Config
 
-Use `defineStudioConfig` to group collections into a single typed config object:
+`defineStudioConfig()` groups collections and gives you a typed `getCollection()` helper.
 
 ```ts
-import { defineStudioConfig, Collection } from '@shrubs/studio';
-import { GitHubAdapter } from '@shrubs/studio/adapters/github';
-import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
-
-// this adapter will handle fetching for a collection in the config
-const gitAdapter = new GitHubAdapter({
-    repo: 'octocat/my-content',
-    branch: 'main',
-});
-
-const dbAdapter = new RemoteAdapter({
-  getItem: async (_slug) => {
-    // custom fetch logic for a database that returns raw markdown
-    return [
-	  '---',
-	  'title: Hello World',
-	  'date: 2024-01-01',
-	  'tags: [example, test]',
-	  '---',
-	  '',
-	  '# Hello World',
-	  'This is a sample post fetched from a database.',
-	].join('\n');
-  },
-  listItemKeys: async () => {
-    // custom logic to list all entry slugs for this collection
-    return ['hello-world'];
-  },
-})
+import { Collection, defineStudioConfig } from "@shrubs/studio";
 
 const studio = defineStudioConfig({
   collections: [
-    Collection.define({ name: 'posts', path: './content/posts', source: 'remote', adapter: gitAdapter }),
-    Collection.define({ name: 'docs',  path: './content/docs', source: 'remote', adapter: dbAdapter  }),
+    Collection.define({
+      name: "posts",
+      path: "./content/posts",
+    }),
+    Collection.define({
+      name: "docs",
+      path: "./content/docs",
+    }),
   ],
 });
 
-// Fully typed — autocompletes collection names
-const postsCollection = studio.getCollection('posts');
-
-const entries = await postsCollection.getEntries(); // instead of directly calling readfilesync, the collection uses the adapter to fetch content from GitHub using it's readDir and readFile methods under the hood
-
-const singleEntry = await postsCollection.getEntry('hello-world'); // fetches from the adapter 
+const posts = studio.getCollection("posts");
+const entries = await posts.getEntries();
 ```
+
+If two non-skipped collections share the same name, `defineStudioConfig()` throws.
