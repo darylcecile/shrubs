@@ -31,6 +31,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
+	"prepublish": "bun run build",
     "build": "bun run scripts/build.ts",
     "test": "bun test"
   },
