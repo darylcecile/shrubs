@@ -127,6 +127,19 @@ describe("Collection", () => {
 		});
 	});
 
+	test("rejects duplicate slugs from the local filesystem", async () => {
+		const postsDir = join(tempRootDir, "content", "posts");
+		writeTempFile("content/posts/hello-world.md", "---\ntitle: Hello World\n---\n");
+		writeTempFile("content/posts/hello-world.mdx", "---\ntitle: Hello Again\n---\n");
+
+		const collection = Collection.define({
+			name: "posts",
+			path: relative(process.cwd(), postsDir),
+		});
+
+		await expect(collection.getEntries()).rejects.toThrow('Duplicate slug "hello-world"');
+	});
+
 	test("uses the configured adapter for listing and reading entries", async () => {
 		const readFileCalls: string[] = [];
 		const getMetadataCalls: string[] = [];
@@ -137,22 +150,19 @@ describe("Collection", () => {
 			async listItemKeys(path: string) {
 				readDirCalls += 1;
 				expect(path).toBe("/blog/posts");
-				return [
-					"/blog/posts/hello-world.md",
-					"/blog/posts/getting-started.mdx",
-				];
+				return ["hello-world", "getting-started"];
 			},
-			async getItem(path: string) {
-				readFileCalls.push(path);
-				if (path.endsWith("hello-world.md")) {
+			async getItem(slug: string) {
+				readFileCalls.push(slug);
+				if (slug === "hello-world") {
 					return "---\ntitle: Hello World\n---\n\nWelcome.";
 				}
 
 				return "---\ntitle: Getting Started\n---\n\nDocs.";
 			},
-			async getMetadata(path: string) {
-				getMetadataCalls.push(path);
-				if (path.endsWith("hello-world.md")) {
+			async getMetadata(slug: string) {
+				getMetadataCalls.push(slug);
+				if (slug === "hello-world") {
 					return {
 						title: "Hello World",
 					};
@@ -195,12 +205,12 @@ describe("Collection", () => {
 		expect(readDirCalls).toBe(1);
 		expect(listItemMetadataCalls).toBe(1);
 		expect(getMetadataCalls).toEqual([
-			"/blog/posts/hello-world.md",
+			"hello-world",
 		]);
 		expect(readFileCalls).toEqual([
-			"/blog/posts/hello-world.md",
-			"/blog/posts/getting-started.mdx",
-			"/blog/posts/hello-world.md",
+			"hello-world",
+			"getting-started",
+			"hello-world",
 		]);
 		expect(entries.map((entry) => entry.slug)).toEqual([
 			"hello-world",
@@ -222,7 +232,7 @@ describe("Collection", () => {
 		});
 	});
 
-	test("rejects duplicate slugs from adapter-backed collections", async () => {
+	test("rejects duplicate slugs from adapter-backed collections after key normalization", async () => {
 		const collection = Collection.define({
 			name: "posts",
 			path: "/blog/posts",
@@ -230,8 +240,8 @@ describe("Collection", () => {
 			adapter: {
 				async readDir() {
 					return [
+						"/blog/posts/hello-world",
 						"/blog/posts/hello-world.md",
-						"/blog/posts/hello-world.mdx",
 					];
 				},
 				async readFile() {
@@ -320,35 +330,35 @@ describe("RemoteAdapter", () => {
 
 	test("exposes optional metadata handlers when provided", async () => {
 		const adapter = new RemoteAdapter({
-			async getItem(path: string) {
-				return `content for ${path}`;
+			async getItem(slug: string) {
+				return `content for ${slug}`;
 			},
-			async listItemKeys(path: string) {
-				return [`${path}/hello-world.md`];
+			async listItemKeys() {
+				return ["hello-world"];
 			},
-			async getMetadata(path: string) {
+			async getMetadata(slug: string) {
 				return {
-					path,
+					slug,
 					title: "Hello World",
 				};
 			},
-			async listItemMetadata(path: string) {
+			async listItemMetadata() {
 				return [
 					{
-						path: `${path}/hello-world.md`,
+						slug: "hello-world",
 						title: "Hello World",
 					},
 				];
 			},
 		});
 
-		await expect(adapter.getMetadata?.("/blog/posts/hello-world.md")).resolves.toEqual({
-			path: "/blog/posts/hello-world.md",
+		await expect(adapter.getMetadata?.("hello-world")).resolves.toEqual({
+			slug: "hello-world",
 			title: "Hello World",
 		});
 		await expect(adapter.listItemMetadata?.("/blog/posts")).resolves.toEqual([
 			{
-				path: "/blog/posts/hello-world.md",
+				slug: "hello-world",
 				title: "Hello World",
 			},
 		]);

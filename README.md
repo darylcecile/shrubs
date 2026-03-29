@@ -70,16 +70,16 @@ const entries = await posts.getEntries();
 
 > **How it works:** When the collection loads, the adapter fetches the listing path
 > (e.g. `GET https://api.example.com/content/blog/posts`) and expects a JSON array
-> of filenames back (e.g. `["hello-world.md", "getting-started.mdx"]`).
-> It then fetches each file individually to retrieve its raw markdown content.
+> of entry slugs back (e.g. `["hello-world", "getting-started"]`).
+> It then fetches each entry individually to retrieve its raw markdown content.
 
 #### `new RemoteAdapter()` — custom item + listing handlers
 
 For full control, provide:
 
-- `getItem(path)` to return the raw markdown for one entry
-- `listItemKeys(path)` to return the available entry paths for the collection
-- `getMetadata(path)` to return metadata for one entry (optional)
+- `getItem(slug)` to return the raw markdown for one entry
+- `listItemKeys(path)` to return the available entry slugs for the collection
+- `getMetadata(slug)` to return metadata for one entry (optional)
 - `listItemMetadata(path)` to return metadata for the collection listing (optional)
 
 ##### Example: Fetching from a remote API with custom auth
@@ -89,10 +89,10 @@ import { Collection } from '@shrubs/studio';
 import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
 
 const adapter = new RemoteAdapter({
-  getItem: async (path) => {
+  getItem: async (slug) => {
     const token = await getAccessToken(); // your auth logic
 
-    const res = await fetch(`https://cms.example.com${path}`, {
+    const res = await fetch(`https://cms.example.com/articles/${slug}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
 
@@ -113,8 +113,7 @@ const adapter = new RemoteAdapter({
       throw new Error(`CMS request failed: ${res.status}`);
     }
 
-    const filenames = await res.json() as string[];
-    return filenames.map((name) => `${path}/${name}`);
+    return res.json() as Promise<string[]>;
   },
 });
 
@@ -138,10 +137,7 @@ import { posts } from './db/schema'; // your Drizzle table
 import { eq } from 'drizzle-orm';
 
 const adapter = new RemoteAdapter({
-  getItem: async (path) => {
-    const slug = path.split('/').pop()?.replace(/\.mdx?$/, '');
-    if (!slug) throw new Error(`Invalid path: ${path}`);
-
+  getItem: async (slug) => {
     const [row] = await db
       .select()
       .from(posts)
@@ -161,9 +157,9 @@ const adapter = new RemoteAdapter({
 
     return `${frontMatter}\n\n${row.content}`;
   },
-  listItemKeys: async (path) => {
+  listItemKeys: async () => {
     const rows = await db.select({ slug: posts.slug }).from(posts);
-    return rows.map((row) => `${path}/${row.slug}.md`);
+    return rows.map((row) => row.slug);
   },
 });
 
@@ -195,7 +191,7 @@ const gitAdapter = new GitHubAdapter({
 });
 
 const dbAdapter = new RemoteAdapter({
-  getItem: async (path) => {
+  getItem: async (_slug) => {
     // custom fetch logic for a database that returns raw markdown
     return [
 	  '---',
@@ -208,9 +204,9 @@ const dbAdapter = new RemoteAdapter({
 	  'This is a sample post fetched from a database.',
 	].join('\n');
   },
-  listItemKeys: async (path) => {
-    // custom logic to list all entry paths for this collection
-    return [`${path}/hello-world.md`];
+  listItemKeys: async () => {
+    // custom logic to list all entry slugs for this collection
+    return ['hello-world'];
   },
 })
 
