@@ -1,7 +1,7 @@
 import type { IAdapter } from "./base";
 
-export type RemoteAdapterFetcher = (path: string) => Promise<string>;
-export type RemoteAdapterListFetcher = (path: string) => Promise<string[]>;
+export type RemoteAdapterGetItem = (path: string) => Promise<string>;
+export type RemoteAdapterListItemKeys = (path: string) => Promise<string[]>;
 
 export type RemoteAdapterFromConfig = {
 	url: string;
@@ -9,39 +9,22 @@ export type RemoteAdapterFromConfig = {
 };
 
 export type RemoteAdapterConfig = {
-	fetcher: RemoteAdapterFetcher;
-} | {
-	getItem: RemoteAdapterFetcher;
-	listItemKeys: RemoteAdapterListFetcher;
+	getItem: RemoteAdapterGetItem;
+	listItemKeys: RemoteAdapterListItemKeys;
 };
 
 export class RemoteAdapter<TContent extends string = string> implements IAdapter {
-	#getItem: RemoteAdapterFetcher;
-	#listItemKeys: RemoteAdapterListFetcher;
+	#getItem: RemoteAdapterGetItem;
+	#listItemKeys: RemoteAdapterListItemKeys;
 
 	constructor(config: RemoteAdapterConfig) {
-		if ("fetcher" in config) {
-			this.#getItem = config.fetcher;
-			this.#listItemKeys = async (path: string) => {
-				const response = await config.fetcher(path);
-				const files = JSON.parse(response) as string[];
-				const basePath = path.replace(/\/+$/, "");
-
-				return files.map((fileName) => {
-					const normalized = fileName.startsWith("/") ? fileName.slice(1) : fileName;
-					return `${basePath}/${normalized}`;
-				});
-			};
-			return;
-		}
-
 		this.#getItem = config.getItem;
 		this.#listItemKeys = config.listItemKeys;
 	}
 
 	static from(config: RemoteAdapterFromConfig): RemoteAdapter {
 		return new RemoteAdapter({
-			fetcher: async (path: string) => {
+			getItem: async (path: string) => {
 				const base = config.url.replace(/\/+$/, "");
 				const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 				const url = base + normalizedPath;
@@ -55,7 +38,28 @@ export class RemoteAdapter<TContent extends string = string> implements IAdapter
 				}
 
 				return response.text();
-			}
+			},
+			listItemKeys: async (path: string) => {
+				const base = config.url.replace(/\/+$/, "");
+				const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+				const url = base + normalizedPath;
+
+				const response = await fetch(url, {
+					headers: config.headers,
+				});
+
+				if (!response.ok) {
+					throw new Error(`Failed to fetch remote content from "${url}": ${response.status} ${response.statusText}`);
+				}
+
+				const files = await response.json() as string[];
+				const basePath = path.replace(/\/+$/, "");
+
+				return files.map((fileName) => {
+					const normalized = fileName.startsWith("/") ? fileName.slice(1) : fileName;
+					return `${basePath}/${normalized}`;
+				});
+			},
 		});
 	}
 

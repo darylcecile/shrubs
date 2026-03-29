@@ -38,7 +38,7 @@ console.log(entry.readTime); // e.g. '3 minutes'
 
 When your content lives behind an API or in a database, use `source: 'remote'` together with an adapter.
 
-The adapter tells the collection *how* to fetch content. There are two ways to create one:
+The adapter tells the collection how to list entries and how to load a single entry. There are two ways to create one:
 
 #### `RemoteAdapter.from()` — URL + headers
 
@@ -70,10 +70,12 @@ const entries = await posts.getEntries();
 > of filenames back (e.g. `["hello-world.md", "getting-started.mdx"]`).
 > It then fetches each file individually to retrieve its raw markdown content.
 
-#### `new RemoteAdapter()` — custom fetcher
+#### `new RemoteAdapter()` — custom item + listing handlers
 
-For full control — custom auth flows, non-HTTP sources, databases — pass a `fetcher`
-function. The fetcher receives the requested path and must return the raw content as a string.
+For full control, provide:
+
+- `getItem(path)` to return the raw markdown for one entry
+- `listItemKeys(path)` to return the available entry paths for the collection
 
 ##### Example: Fetching from a remote API with custom auth
 
@@ -82,7 +84,7 @@ import { Collection } from '@shrubs/studio';
 import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
 
 const adapter = new RemoteAdapter({
-  fetcher: async (path) => {
+  getItem: async (path) => {
     const token = await getAccessToken(); // your auth logic
 
     const res = await fetch(`https://cms.example.com${path}`, {
@@ -94,6 +96,20 @@ const adapter = new RemoteAdapter({
     }
 
     return res.text();
+  },
+  listItemKeys: async (path) => {
+    const token = await getAccessToken();
+
+    const res = await fetch(`https://cms.example.com${path}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      throw new Error(`CMS request failed: ${res.status}`);
+    }
+
+    const filenames = await res.json() as string[];
+    return filenames.map((name) => `${path}/${name}`);
   },
 });
 
@@ -107,9 +123,7 @@ const posts = Collection.define({
 
 ##### Example: Loading content from a SQL database with Drizzle ORM
 
-You can use the custom fetcher to bridge any data source — including a SQL database.
-The fetcher for the *listing* path should return a JSON array of filenames, and the
-fetcher for an individual file path should return the raw markdown string.
+You can use the adapter to bridge any data source, including a SQL database.
 
 ```ts
 import { Collection } from '@shrubs/studio';
@@ -119,14 +133,7 @@ import { posts } from './db/schema'; // your Drizzle table
 import { eq } from 'drizzle-orm';
 
 const adapter = new RemoteAdapter({
-  fetcher: async (path) => {
-    // Listing request — return JSON array of "filenames"
-    if (path === '/blog/posts') {
-      const rows = await db.select({ slug: posts.slug }).from(posts);
-      return JSON.stringify(rows.map((r) => `${r.slug}.md`));
-    }
-
-    // Individual entry request — return raw markdown with front-matter
+  getItem: async (path) => {
     const slug = path.split('/').pop()?.replace(/\.mdx?$/, '');
     if (!slug) throw new Error(`Invalid path: ${path}`);
 
@@ -149,11 +156,16 @@ const adapter = new RemoteAdapter({
 
     return `${frontMatter}\n\n${row.content}`;
   },
+  listItemKeys: async (path) => {
+    const rows = await db.select({ slug: posts.slug }).from(posts);
+    return rows.map((row) => `${path}/${row.slug}.md`);
+  },
 });
 
 const blogPosts = Collection.define({
   name: 'posts',
   path: '/blog/posts',
+  source: 'remote',
   adapter,
 });
 
@@ -180,7 +192,16 @@ const gitAdapter = new GitHubAdapter({
 const dbAdapter = new RemoteAdapter({
   getItem: async (path) => {
     // custom fetch logic for a database that returns raw markdown
-    return '---\\ntitle: Example\\n---\\n\\nHello world';
+    return [
+	  '---',
+	  'title: Hello World',
+	  'date: 2024-01-01',
+	  'tags: [example, test]',
+	  '---',
+	  '',
+	  '# Hello World',
+	  'This is a sample post fetched from a database.',
+	].join('\n');
   },
   listItemKeys: async (path) => {
     // custom logic to list all entry paths for this collection
@@ -191,7 +212,7 @@ const dbAdapter = new RemoteAdapter({
 const studio = defineStudioConfig({
   collections: [
     Collection.define({ name: 'posts', path: './content/posts', source: 'remote', adapter: gitAdapter }),
-    Collection.define({ name: 'docs',  path: './content/docs', source: 'remote', adapter: gitAdapter  }),
+    Collection.define({ name: 'docs',  path: './content/docs', source: 'remote', adapter: dbAdapter  }),
   ],
 });
 

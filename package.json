@@ -31,7 +31,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "bun run scripts/build.ts"
+    "build": "bun run scripts/build.ts",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest",
