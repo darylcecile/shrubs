@@ -42,10 +42,6 @@ export const Secret = {
 		return secret as Secret<V>
 	},
 	reveal<V>(secret: Secret<V>): V {
-		if (secretPointers.has(secret) === false) {
-			return secret as unknown as V;
-		}
-
 		// If the secret is backed by an environment variable, retrieve the value from the environment variable.
 		if ("envBacking" in secret && secret.envBacking) {
 			const envValue = process.env[secret.envBacking as string];
@@ -53,6 +49,10 @@ export const Secret = {
 				throw new Error(`Environment variable "${secret.envBacking}" is not defined`);
 			}
 			return envValue as unknown as V;
+		}
+
+		if (secretPointers.has(secret) === false) {
+			return secret as unknown as V;
 		}
 
 		const value = secretPointers.get(secret);
