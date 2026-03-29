@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { safeLoadFront } from 'yaml-front-matter';
 
 type EntryInit<F> = {
-	frontMatterSchema?: F
+	frontMatterSchema?: F;
+	raw?: string;
 }
 
 export class Entry<F extends StandardSchemaV1<unknown>> {
@@ -16,7 +17,7 @@ export class Entry<F extends StandardSchemaV1<unknown>> {
 
 	constructor(path: string, init?: EntryInit<F>) {
 		this.path = path;
-		this.#raw = readFileSync(this.path, 'utf-8');
+		this.#raw = init?.raw ?? readFileSync(this.path, 'utf-8');
 		this.#init = init;
 	}
 
