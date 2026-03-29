@@ -50,7 +50,7 @@ import { Collection, RemoteCollectionAdapter } from '@shrubs/studio';
 const adapter = RemoteCollectionAdapter.from({
   url: 'https://api.example.com/content',
   headers: {
-    'Authorization': 'Bearer my-secret-token',
+    'Authorization': `Bearer ${process.env.API_TOKEN}`,
   },
 });
 
