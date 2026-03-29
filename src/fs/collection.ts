@@ -1,7 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { Entry } from './entry';
+import { Entry, validate } from './entry';
 import type { StudioConfig, IStudioConfig } from "..";
 import type { IAdapter } from "../adapters/base";
 
@@ -20,6 +20,8 @@ export type CollectionInit<N extends string, A, B> = {
 	source?: 'fs' | 'remote'; 
 	adapter?: IAdapter;
 }
+
+type CollectionMetadata<A, B> = StandardSchemaV1.InferOutput<StandardSchemaV1<A, B>>;
 
 export class Collection<N extends string, A, B> {
 	#init: CollectionInit<N, A, B>;
@@ -58,17 +60,53 @@ export class Collection<N extends string, A, B> {
 
 		const adapter = this.#init.adapter!;
 		await adapter.connect?.();
-		const slugs = await adapter.readDir(this.#init.path);
+		const files = await adapter.readDir(this.#init.path);
 
 		this.#adapterSlugMap = new Map();
-		for (const slug of slugs) {
-			if (this.#adapterSlugMap.has(slug)) {
-				throw new Error(`🚨 Duplicate slug "${slug}" found in collection "${this.#init.name}". Make sure all entries have unique slugs.`);
+		for (const entryPath of files) {
+			const fileName = entryPath.split('/').pop() || entryPath;
+			if (fileName.endsWith('.md') || fileName.endsWith('.mdx')) {
+				const slug = fileName.replace(/\.mdx?$/, '');
+
+				if (this.#adapterSlugMap.has(slug)) {
+					throw new Error(`🚨 Duplicate slug "${slug}" found in collection "${this.#init.name}". Make sure all entries have unique slugs. (E.g. dont have file.md and file.mdx in the same collection)`);
+				}
+
+				this.#adapterSlugMap.set(slug, entryPath);
 			}
-			this.#adapterSlugMap.set(slug, slug);
 		}
 
 		return this.#adapterSlugMap;
+	}
+
+	async #loadEntryMetadata(entryPath: string, raw?: string): Promise<CollectionMetadata<A, B>> {
+		const entry = new Entry<StandardSchemaV1<A, B>>(entryPath, {
+			frontMatterSchema: this.#init.schema?.metadata,
+			raw,
+		});
+		await entry.load();
+		return entry.metadata as CollectionMetadata<A, B>;
+	}
+
+	async #loadAdapterMetadata(entryPath: string): Promise<CollectionMetadata<A, B>> {
+		const adapter = this.#init.adapter!;
+		if (adapter.getMetadata) {
+			const metadata = await adapter.getMetadata(entryPath);
+
+			if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+				throw new Error(`🚨 Adapter getMetadata("${entryPath}") for collection "${this.#init.name}" must return an object.`);
+			}
+
+			const schema = this.#init.schema?.metadata;
+			if (schema) {
+				return await validate(schema, metadata as StandardSchemaV1.InferInput<typeof schema>);
+			}
+
+			return metadata as CollectionMetadata<A, B>;
+		}
+
+		const raw = await adapter.readFile(entryPath);
+		return this.#loadEntryMetadata(entryPath, raw);
 	}
 
 	getSlugMap() {
@@ -123,6 +161,41 @@ export class Collection<N extends string, A, B> {
 		);
 	}
 
+	async getEntriesMetadata(): Promise<CollectionMetadata<A, B>[]> {
+		if (this.#usesAdapter) {
+			const slugMap = await this.#getAdapterSlugMap();
+			const adapter = this.#init.adapter!;
+			const entryPaths = Array.from(slugMap.values());
+
+			if (adapter.listItemMetadata) {
+				const metadataList = await adapter.listItemMetadata(this.#init.path);
+				return Promise.all(
+					metadataList.map((metadata, index) => {
+						const entryPath = entryPaths[index] ?? `${this.#init.path}[${index}]`;
+						if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+							throw new Error(`🚨 Adapter listItemMetadata("${this.#init.path}") for collection "${this.#init.name}" must return an array of objects.`);
+						}
+
+						const schema = this.#init.schema?.metadata;
+						if (schema) {
+							return validate(schema, metadata as StandardSchemaV1.InferInput<typeof schema>) as Promise<CollectionMetadata<A, B>>;
+						}
+
+						return Promise.resolve(metadata as CollectionMetadata<A, B>);
+					})
+				);
+			}
+
+			return Promise.all(
+				entryPaths.map((entryPath) => this.#loadAdapterMetadata(entryPath))
+			);
+		}
+
+		return Promise.all(
+			Array.from(this.getSlugMap().values()).map((path) => this.#loadEntryMetadata(path))
+		);
+	}
+
 	async getEntry(slug: string) {
 		if (this.#usesAdapter) {
 			const slugMap = await this.#getAdapterSlugMap();
@@ -154,6 +227,28 @@ export class Collection<N extends string, A, B> {
 			frontMatterSchema: this.#init.schema?.metadata
 		});
 		return entry.load();
+	}
+
+	async getEntryMetadata(slug: string): Promise<CollectionMetadata<A, B>> {
+		if (this.#usesAdapter) {
+			const slugMap = await this.#getAdapterSlugMap();
+			const entryPath = slugMap.get(slug);
+
+			if (!entryPath) {
+				throw new Error(`🚨 Entry with slug "${slug}" not found in collection "${this.#init.name}".`);
+			}
+
+			return this.#loadAdapterMetadata(entryPath);
+		}
+
+		const slugMap = this.getSlugMap();
+		const entryPath = slugMap.get(slug);
+
+		if (!entryPath) {
+			throw new Error(`🚨 Entry with slug "${slug}" not found in collection "${this.#init.name}".`);
+		}
+
+		return this.#loadEntryMetadata(entryPath);
 	}
 }
 

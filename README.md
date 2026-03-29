@@ -27,9 +27,12 @@ const entries = await posts.getEntries();
 
 // Get a single entry by slug (filename without extension)
 const entry = await posts.getEntry('hello-world');
+const metadata = await posts.getEntryMetadata('hello-world');
+const allMetadata = await posts.getEntriesMetadata();
 
 console.log(entry.slug);     // 'hello-world'
 console.log(entry.metadata); // parsed front-matter
+console.log(metadata);       // parsed front-matter only
 console.log(entry.content);  // markdown body
 console.log(entry.readTime); // e.g. '3 minutes'
 ```
@@ -76,6 +79,8 @@ For full control, provide:
 
 - `getItem(path)` to return the raw markdown for one entry
 - `listItemKeys(path)` to return the available entry paths for the collection
+- `getMetadata(path)` to return metadata for one entry (optional)
+- `listItemMetadata(path)` to return metadata for the collection listing (optional)
 
 ##### Example: Fetching from a remote API with custom auth
 

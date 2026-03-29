@@ -2,6 +2,8 @@ import type { IAdapter } from "./base";
 
 export type RemoteAdapterGetItem = (path: string) => Promise<string>;
 export type RemoteAdapterListItemKeys = (path: string) => Promise<string[]>;
+export type RemoteAdapterGetMetadata = (path: string) => Promise<unknown>;
+export type RemoteAdapterListItemMetadata = (path: string) => Promise<unknown[]>;
 
 export type RemoteAdapterFromConfig = {
 	url: string;
@@ -11,15 +13,21 @@ export type RemoteAdapterFromConfig = {
 export type RemoteAdapterConfig = {
 	getItem: RemoteAdapterGetItem;
 	listItemKeys: RemoteAdapterListItemKeys;
+	getMetadata?: RemoteAdapterGetMetadata;
+	listItemMetadata?: RemoteAdapterListItemMetadata;
 };
 
 export class RemoteAdapter<TContent extends string = string> implements IAdapter {
 	#getItem: RemoteAdapterGetItem;
 	#listItemKeys: RemoteAdapterListItemKeys;
+	readonly getMetadata?: RemoteAdapterGetMetadata;
+	readonly listItemMetadata?: RemoteAdapterListItemMetadata;
 
 	constructor(config: RemoteAdapterConfig) {
 		this.#getItem = config.getItem;
 		this.#listItemKeys = config.listItemKeys;
+		this.getMetadata = config.getMetadata;
+		this.listItemMetadata = config.listItemMetadata;
 	}
 
 	static from(config: RemoteAdapterFromConfig): RemoteAdapter {

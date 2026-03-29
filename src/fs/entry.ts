@@ -30,14 +30,15 @@ export class Entry<F extends StandardSchemaV1<unknown>> {
 
 		if (this.#init?.frontMatterSchema) {
 			try {
-				const result = await validate(this.#init.frontMatterSchema, metadata);
-				this.#metadata = result;
+				this.#metadata = await validate(this.#init.frontMatterSchema, metadata);
 			} catch (e) {
 				console.error(`🚨 Front matter validation error in file: ${this.path}\n   ${e}`);
+				this.#metadata = metadata as StandardSchemaV1.InferOutput<F>;
 			}
+		} else {
+			this.#metadata = metadata as StandardSchemaV1.InferOutput<F>;
 		}
 
-		this.#metadata = metadata;
 		this.#content = content;
 
 		return this;
@@ -85,7 +86,7 @@ export class Entry<F extends StandardSchemaV1<unknown>> {
 }
 
 // RIPPED from xsschema due to nextjs static import issues
-const validate = async <T extends StandardSchemaV1>(schema: T, input: StandardSchemaV1.InferInput<T>): Promise<StandardSchemaV1.InferOutput<T>> => {
+export const validate = async <T extends StandardSchemaV1>(schema: T, input: StandardSchemaV1.InferInput<T>): Promise<StandardSchemaV1.InferOutput<T>> => {
 	let result = schema['~standard'].validate(input)
 	if (result instanceof Promise)
 		result = await result

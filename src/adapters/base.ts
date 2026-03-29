@@ -9,6 +9,8 @@ export interface IAdapter {
 	// Read collection entries using adapter-specific keys.
 	readFile(path: string): Promise<string>;
 	readDir(path: string): Promise<string[]>;
+	getMetadata?(path: string): Promise<unknown>;
+	listItemMetadata?(path: string): Promise<unknown[]>;
 	writeFile?(path: string, content: string): Promise<boolean>;
 	remove?(path: string): Promise<boolean>;
 

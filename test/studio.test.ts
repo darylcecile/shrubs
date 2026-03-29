@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -10,6 +11,31 @@ const tempParentDir = join(process.cwd(), ".tmp-tests");
 const originalFetch = globalThis.fetch;
 
 let tempRootDir = "";
+
+const metadataSchema: StandardSchemaV1<
+	Record<string, unknown>,
+	{ title: string; tags: string[]; featured: boolean }
+> = {
+	"~standard": {
+		version: 1,
+		vendor: "test",
+		types: {
+			input: {} as Record<string, unknown>,
+			output: {} as { title: string; tags: string[]; featured: boolean },
+		},
+		validate(value: unknown) {
+			const input = value as Record<string, unknown>;
+
+			return {
+				value: {
+					title: String(input.title ?? ""),
+					tags: Array.isArray(input.tags) ? input.tags.map((tag) => String(tag)) : [],
+					featured: Boolean(input.featured),
+				},
+			};
+		},
+	},
+};
 
 function writeTempFile(path: string, content: string) {
 	const fullPath = join(tempRootDir, path);
@@ -61,8 +87,50 @@ describe("Collection", () => {
 		expect((await collection.getEntry("hello-world")).slug).toBe("hello-world");
 	});
 
+	test("returns collection metadata with schema output types", async () => {
+		const postsDir = join(tempRootDir, "content", "posts");
+		writeTempFile(
+			"content/posts/hello-world.md",
+			[
+				"---",
+				"title: Hello World",
+				"tags: [intro, welcome]",
+				"featured: true",
+				"---",
+				"",
+				"Hello from shrubs studio.",
+			].join("\n"),
+		);
+
+		const collection = Collection.define({
+			name: "posts",
+			path: relative(process.cwd(), postsDir),
+			schema: {
+				metadata: metadataSchema,
+			},
+		});
+
+		const allMetadata = await collection.getEntriesMetadata();
+		const singleMetadata = await collection.getEntryMetadata("hello-world");
+
+		expect(allMetadata).toEqual([
+			{
+				title: "Hello World",
+				tags: ["intro", "welcome"],
+				featured: true,
+			},
+		]);
+		expect(singleMetadata).toEqual({
+			title: "Hello World",
+			tags: ["intro", "welcome"],
+			featured: true,
+		});
+	});
+
 	test("uses the configured adapter for listing and reading entries", async () => {
 		const readFileCalls: string[] = [];
+		const getMetadataCalls: string[] = [];
+		let listItemMetadataCalls = 0;
 		let readDirCalls = 0;
 
 		const adapter = new RemoteAdapter({
@@ -82,6 +150,30 @@ describe("Collection", () => {
 
 				return "---\ntitle: Getting Started\n---\n\nDocs.";
 			},
+			async getMetadata(path: string) {
+				getMetadataCalls.push(path);
+				if (path.endsWith("hello-world.md")) {
+					return {
+						title: "Hello World",
+					};
+				}
+
+				return {
+					title: "Getting Started",
+				};
+			},
+			async listItemMetadata(path: string) {
+				listItemMetadataCalls += 1;
+				expect(path).toBe("/blog/posts");
+				return [
+					{
+						title: "Hello World",
+					},
+					{
+						title: "Getting Started",
+					},
+				];
+			},
 		});
 
 		const collection = Collection.define({
@@ -96,9 +188,15 @@ describe("Collection", () => {
 
 		const entries = await studio.getCollection("posts").getEntries();
 		const single = await collection.getEntry("hello-world");
+		const metadataList = await collection.getEntriesMetadata();
+		const singleMetadata = await collection.getEntryMetadata("hello-world");
 
 		expect(() => collection.getSlugMap()).toThrow("adapter-backed collections");
 		expect(readDirCalls).toBe(1);
+		expect(listItemMetadataCalls).toBe(1);
+		expect(getMetadataCalls).toEqual([
+			"/blog/posts/hello-world.md",
+		]);
 		expect(readFileCalls).toEqual([
 			"/blog/posts/hello-world.md",
 			"/blog/posts/getting-started.mdx",
@@ -109,6 +207,17 @@ describe("Collection", () => {
 			"getting-started",
 		]);
 		expect(single.metadata).toEqual({
+			title: "Hello World",
+		});
+		expect(metadataList).toEqual([
+			{
+				title: "Hello World",
+			},
+			{
+				title: "Getting Started",
+			},
+		]);
+		expect(singleMetadata).toEqual({
 			title: "Hello World",
 		});
 	});
@@ -205,6 +314,42 @@ describe("RemoteAdapter", () => {
 				headers: {
 					Authorization: "Bearer secret",
 				},
+			},
+		]);
+	});
+
+	test("exposes optional metadata handlers when provided", async () => {
+		const adapter = new RemoteAdapter({
+			async getItem(path: string) {
+				return `content for ${path}`;
+			},
+			async listItemKeys(path: string) {
+				return [`${path}/hello-world.md`];
+			},
+			async getMetadata(path: string) {
+				return {
+					path,
+					title: "Hello World",
+				};
+			},
+			async listItemMetadata(path: string) {
+				return [
+					{
+						path: `${path}/hello-world.md`,
+						title: "Hello World",
+					},
+				];
+			},
+		});
+
+		await expect(adapter.getMetadata?.("/blog/posts/hello-world.md")).resolves.toEqual({
+			path: "/blog/posts/hello-world.md",
+			title: "Hello World",
+		});
+		await expect(adapter.listItemMetadata?.("/blog/posts")).resolves.toEqual([
+			{
+				path: "/blog/posts/hello-world.md",
+				title: "Hello World",
 			},
 		]);
 	});
