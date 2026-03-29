@@ -3,7 +3,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Entry } from './entry';
 import type { StudioConfig, IStudioConfig } from "..";
-import type { RemoteCollectionAdapter } from './remote-collection-adapter';
+import type { IAdapter } from "../adapters/base";
 
 type CollectionSchema<A, B> = {
 	metadata: StandardSchemaV1<A, B>;
@@ -18,18 +18,17 @@ export type CollectionInit<N extends string, A, B> = {
 	skip?: boolean;
 	// defaults to 'fs' if not provided
 	source?: 'fs' | 'remote'; 
-	// required when source is 'remote'
-	adapter?: RemoteCollectionAdapter;
+	adapter?: IAdapter;
 }
 
 export class Collection<N extends string, A, B> {
 	#init: CollectionInit<N, A, B>;
 	#slugToPathMap: Map<string, string> = new Map();
-	#remoteSlugMap: Map<string, string> | null = null;
+	#adapterSlugMap: Map<string, string> | null = null;
 
 	protected constructor(init: CollectionInit<N, A, B>) {
 		if (init.source === 'remote' && !init.adapter) {
-			throw new Error(`🚨 Collection "${init.name}" has source "remote" but no adapter was provided. Please provide a RemoteCollectionAdapter via the "adapter" option.`);
+			throw new Error(`🚨 Collection "${init.name}" has source "remote" but no adapter was provided. Please provide an adapter via the "adapter" option.`);
 		}
 		this.#init = init;
 	}
@@ -38,8 +37,8 @@ export class Collection<N extends string, A, B> {
 		return new Collection<N, A, B>(init);
 	}
 
-	get #isRemote() {
-		return this.#init.source === 'remote';
+	get #usesAdapter() {
+		return this.#init.adapter !== undefined;
 	}
 
 	get name() {
@@ -54,32 +53,33 @@ export class Collection<N extends string, A, B> {
 		return this.#init.schema?.metadata;
 	}
 
-	async #getRemoteSlugMap(): Promise<Map<string, string>> {
-		if (this.#remoteSlugMap) return this.#remoteSlugMap;
+	async #getAdapterSlugMap(): Promise<Map<string, string>> {
+		if (this.#adapterSlugMap) return this.#adapterSlugMap;
 
 		const adapter = this.#init.adapter!;
-		const listing = await adapter.fetch(this.#init.path);
-		const files: string[] = JSON.parse(listing);
+		await adapter.connect?.();
+		const files = await adapter.readDir(this.#init.path);
 
-		this.#remoteSlugMap = new Map();
-		for (const fileName of files) {
+		this.#adapterSlugMap = new Map();
+		for (const entryPath of files) {
+			const fileName = entryPath.split('/').pop() || entryPath;
 			if (fileName.endsWith('.md') || fileName.endsWith('.mdx')) {
 				const slug = fileName.replace(/\.mdx?$/, '');
 
-				if (this.#remoteSlugMap.has(slug)) {
+				if (this.#adapterSlugMap.has(slug)) {
 					throw new Error(`🚨 Duplicate slug "${slug}" found in collection "${this.#init.name}". Make sure all entries have unique slugs. (E.g. dont have file.md and file.mdx in the same collection)`);
 				}
 
-				this.#remoteSlugMap.set(slug, fileName);
+				this.#adapterSlugMap.set(slug, entryPath);
 			}
 		}
 
-		return this.#remoteSlugMap;
+		return this.#adapterSlugMap;
 	}
 
 	getSlugMap() {
-		if (this.#isRemote) {
-			throw new Error(`🚨 getSlugMap() is not supported for remote collections. Use getEntries() or getEntry(slug) instead.`);
+		if (this.#usesAdapter) {
+			throw new Error(`🚨 getSlugMap() is not supported for adapter-backed collections. Use getEntries() or getEntry(slug) instead.`);
 		}
 
 		if (this.#slugToPathMap.size > 0) {
@@ -103,15 +103,14 @@ export class Collection<N extends string, A, B> {
 	}
 
 	async getEntries() {
-		if (this.#isRemote) {
-			const slugMap = await this.#getRemoteSlugMap();
+		if (this.#usesAdapter) {
+			const slugMap = await this.#getAdapterSlugMap();
 			const adapter = this.#init.adapter!;
-			const basePath = this.#init.path.replace(/\/+$/, '');
 
 			return Promise.all(
-				slugMap.entries().toArray().map(async ([_slug, fileName]) => {
-					const raw = await adapter.fetch(basePath + '/' + fileName);
-					const entry = new Entry<StandardSchemaV1<A, B>>(fileName, {
+				Array.from(slugMap.values()).map(async (entryPath) => {
+					const raw = await adapter.readFile(entryPath);
+					const entry = new Entry<StandardSchemaV1<A, B>>(entryPath, {
 						frontMatterSchema: this.#init.schema?.metadata,
 						raw,
 					});
@@ -121,7 +120,7 @@ export class Collection<N extends string, A, B> {
 		}
 
 		return Promise.all(
-			this.getSlugMap().values().toArray().map(path => {
+			Array.from(this.getSlugMap().values()).map(path => {
 				const entry = new Entry<StandardSchemaV1<A, B>>(path, {
 					frontMatterSchema: this.#init.schema?.metadata
 				});
@@ -131,19 +130,18 @@ export class Collection<N extends string, A, B> {
 	}
 
 	async getEntry(slug: string) {
-		if (this.#isRemote) {
-			const slugMap = await this.#getRemoteSlugMap();
-			const fileName = slugMap.get(slug);
+		if (this.#usesAdapter) {
+			const slugMap = await this.#getAdapterSlugMap();
+			const entryPath = slugMap.get(slug);
 
-			if (!fileName) {
+			if (!entryPath) {
 				throw new Error(`🚨 Entry with slug "${slug}" not found in collection "${this.#init.name}".`);
 			}
 
 			const adapter = this.#init.adapter!;
-			const basePath = this.#init.path.replace(/\/+$/, '');
-			const raw = await adapter.fetch(basePath + '/' + fileName);
+			const raw = await adapter.readFile(entryPath);
 
-			const entry = new Entry<StandardSchemaV1<A, B>>(fileName, {
+			const entry = new Entry<StandardSchemaV1<A, B>>(entryPath, {
 				frontMatterSchema: this.#init.schema?.metadata,
 				raw,
 			});

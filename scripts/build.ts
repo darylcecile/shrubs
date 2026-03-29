@@ -23,6 +23,7 @@ const entrypoints = [
 
 	// Adapters
 	join(rootDir, "src", "adapters", "github.ts"),
+	join(rootDir, "src", "adapters", "remote.ts"),
 ];
 
 const buildResult = await Bun.build({

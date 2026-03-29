@@ -1,23 +1,20 @@
-import type { Collection } from "../fs";
-
 export interface IAdapter {
-	context?: any;
+	context?: unknown;
 
-	// Connect to the backend service
-	connect(): Promise<this>;
-	// Disonnect from the backend service
-	disconnect(): Promise<boolean>;
+	// Connect to the backend service if setup is required.
+	connect?(): Promise<this>;
+	// Disconnect from the backend service if teardown is required.
+	disconnect?(): Promise<boolean>;
 
-	// manage files
-	read(path: string): Promise<string>;
+	// Read collection entries using adapter-specific keys.
+	readFile(path: string): Promise<string>;
 	readDir(path: string): Promise<string[]>;
-	write(path: string, content: string): Promise<boolean>;
-	remove(path: string): Promise<boolean>;
+	writeFile?(path: string, content: string): Promise<boolean>;
+	remove?(path: string): Promise<boolean>;
 
-	// transaction
+	// Transaction helpers for writable adapters.
 	commit?(message: string): Promise<boolean>;
-	hasPendingChanges(): Promise<boolean>;
-
+	hasPendingChanges?(): Promise<boolean>;
 }
 
 export class Contextable<Ctx = any> {

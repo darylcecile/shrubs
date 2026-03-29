@@ -36,18 +36,19 @@ console.log(entry.readTime); // e.g. '3 minutes'
 
 ### Remote Sources
 
-When your content lives behind an API or in a database, use `source: 'remote'` together with a `RemoteCollectionAdapter`.
+When your content lives behind an API or in a database, use `source: 'remote'` together with an adapter.
 
 The adapter tells the collection *how* to fetch content. There are two ways to create one:
 
-#### `RemoteCollectionAdapter.from()` — URL + headers
+#### `RemoteAdapter.from()` — URL + headers
 
 The quickest way to connect to a REST API. Provide a base URL and optional headers (e.g. for auth). The adapter uses the native `fetch` API under the hood.
 
 ```ts
-import { Collection, RemoteCollectionAdapter } from '@shrubs/studio';
+import { Collection } from '@shrubs/studio';
+import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
 
-const adapter = RemoteCollectionAdapter.from({
+const adapter = RemoteAdapter.from({
   url: 'https://api.example.com/content',
   headers: {
     'Authorization': `Bearer ${process.env.API_TOKEN}`,
@@ -69,7 +70,7 @@ const entries = await posts.getEntries();
 > of filenames back (e.g. `["hello-world.md", "getting-started.mdx"]`).
 > It then fetches each file individually to retrieve its raw markdown content.
 
-#### `new RemoteCollectionAdapter()` — custom fetcher
+#### `new RemoteAdapter()` — custom fetcher
 
 For full control — custom auth flows, non-HTTP sources, databases — pass a `fetcher`
 function. The fetcher receives the requested path and must return the raw content as a string.
@@ -77,9 +78,10 @@ function. The fetcher receives the requested path and must return the raw conten
 ##### Example: Fetching from a remote API with custom auth
 
 ```ts
-import { Collection, RemoteCollectionAdapter } from '@shrubs/studio';
+import { Collection } from '@shrubs/studio';
+import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
 
-const adapter = new RemoteCollectionAdapter({
+const adapter = new RemoteAdapter({
   fetcher: async (path) => {
     const token = await getAccessToken(); // your auth logic
 
@@ -110,12 +112,13 @@ The fetcher for the *listing* path should return a JSON array of filenames, and 
 fetcher for an individual file path should return the raw markdown string.
 
 ```ts
-import { Collection, RemoteCollectionAdapter } from '@shrubs/studio';
+import { Collection } from '@shrubs/studio';
+import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
 import { db } from './db';           // your Drizzle instance
 import { posts } from './db/schema'; // your Drizzle table
 import { eq } from 'drizzle-orm';
 
-const adapter = new RemoteCollectionAdapter({
+const adapter = new RemoteAdapter({
   fetcher: async (path) => {
     // Listing request — return JSON array of "filenames"
     if (path === '/blog/posts') {
@@ -151,7 +154,6 @@ const adapter = new RemoteCollectionAdapter({
 const blogPosts = Collection.define({
   name: 'posts',
   path: '/blog/posts',
-  source: 'remote',
   adapter,
 });
 
@@ -162,23 +164,41 @@ const single = await blogPosts.getEntry('my-first-post');
 
 ## Studio Config
 
-Use `defineStudioConfig` to group collections (and an optional remote adapter) into a single typed config object:
+Use `defineStudioConfig` to group collections into a single typed config object:
 
 ```ts
 import { defineStudioConfig, Collection } from '@shrubs/studio';
 import { GitHubAdapter } from '@shrubs/studio/adapters/github';
+import { RemoteAdapter } from '@shrubs/studio/adapters/remote';
 
-const studio = defineStudioConfig({
-  remote: new GitHubAdapter({
+// this adapter will handle fetching for a collection in the config
+const gitAdapter = new GitHubAdapter({
     repo: 'octocat/my-content',
     branch: 'main',
-  }),
+});
+
+const dbAdapter = new RemoteAdapter({
+  getItem: async (path) => {
+    // custom fetch logic for a database that returns raw markdown
+    return '---\\ntitle: Example\\n---\\n\\nHello world';
+  },
+  listItemKeys: async (path) => {
+    // custom logic to list all entry paths for this collection
+    return [`${path}/hello-world.md`];
+  },
+})
+
+const studio = defineStudioConfig({
   collections: [
-    Collection.define({ name: 'posts', path: './content/posts' }),
-    Collection.define({ name: 'docs',  path: './content/docs'  }),
+    Collection.define({ name: 'posts', path: './content/posts', source: 'remote', adapter: gitAdapter }),
+    Collection.define({ name: 'docs',  path: './content/docs', source: 'remote', adapter: gitAdapter  }),
   ],
 });
 
 // Fully typed — autocompletes collection names
 const postsCollection = studio.getCollection('posts');
+
+const entries = await postsCollection.getEntries(); // instead of directly calling readfilesync, the collection uses the adapter to fetch content from GitHub using it's readDir and readFile methods under the hood
+
+const singleEntry = await postsCollection.getEntry('hello-world'); // fetches from the adapter 
 ```

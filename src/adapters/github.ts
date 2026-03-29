@@ -76,8 +76,8 @@ export class GitHubAdapter extends Contextable<GitHubAdapterContext> implements 
 		return this;
 	}
 
-	disconnect(): Promise<boolean> {
-		throw new Error('Method not implemented.');
+	async disconnect(): Promise<boolean> {
+		return true;
 	}
 
 	async readDir(path: string): Promise<string[]> {
@@ -97,7 +97,7 @@ export class GitHubAdapter extends Contextable<GitHubAdapterContext> implements 
 		return [];
 	}
 
-	async read(path: string): Promise<string> {
+	async readFile(path: string): Promise<string> {
 		const [owner, repo] = this.context.repo.split('/');
 		const file = await this.#octokit.rest.repos.getContent({
 			owner: owner!,
@@ -118,7 +118,7 @@ export class GitHubAdapter extends Contextable<GitHubAdapterContext> implements 
 		});
 	}
 
-	async write(path: string, content: string): Promise<boolean> {
+	async writeFile(path: string, content: string): Promise<boolean> {
 		const [owner, repo] = this.context.repo.split('/');
 		
 		const result = await this.#octokit.rest.repos.createOrUpdateFileContents({
@@ -172,8 +172,7 @@ export class GitHubAdapter extends Contextable<GitHubAdapterContext> implements 
 		return true;
 	}
 	
-	hasPendingChanges(): Promise<boolean> {
-		throw new Error('Method not implemented.');
+	async hasPendingChanges(): Promise<boolean> {
+		return false;
 	}
-
 }

@@ -1,8 +1,6 @@
-import type { IAdapter } from "./adapters/base";
 import type { Collection } from "./fs";
 
 export interface IStudioConfig {
-	remote?: IAdapter;
 	collections: Collection<string, unknown, unknown>[];
 }
 
@@ -35,11 +33,11 @@ export function defineStudioConfig<const Config extends IStudioConfig>(config: C
 		__: Object.fromEntries(config.collections.map(col => [col.name, col])) as {
 			[K in CollectionNames]: CollectionByName<K>
 		},
-		getCollection,
-		getRemote: async () => config.remote?.connect()
+		getCollection
 	}
 }
 
 export type StudioConfig<C extends IStudioConfig> = ReturnType<typeof defineStudioConfig<C>>;
 
 export * from "./fs"
+export * from "./adapters/remote"
