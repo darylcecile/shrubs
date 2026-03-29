@@ -91,8 +91,14 @@ export const validate = async <T extends StandardSchemaV1>(schema: T, input: Sta
 	if (result instanceof Promise)
 		result = await result
 
-	if (result.issues)
-		throw new Error(JSON.stringify(result.issues, null, 2))
+	if (result.issues) {
+		throw new Error(
+			`🚨 Validation error. Got ` +
+			JSON.stringify(result.issues, null, 2) + '\n' +
+			`Input was: ` +
+			JSON.stringify(input, null, 2)
+		);
+	}
 
 	return (result as StandardSchemaV1.SuccessResult<T>).value
 }
