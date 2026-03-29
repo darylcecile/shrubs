@@ -18,6 +18,29 @@ import { Secret } from "@shrubs/studio/util";
 
 `GitHubAdapter` and `Secret` are not exported from the package root.
 
+## Secrets
+
+`Secret` is a small utility for passing sensitive values around without exposing them in logs or JSON output.
+
+```ts
+import { Secret } from "@shrubs/studio/util";
+
+const token = Secret.from("ghp_xxx");
+const envToken = Secret.fromEnv("GITHUB_TOKEN");
+
+console.log(String(token)); // "<redacted>"
+console.log(JSON.stringify(token)); // "\"<redacted>\""
+
+const raw = Secret.reveal(envToken);
+```
+
+Use it when an adapter or helper should accept a token without encouraging plain string handling.
+
+- `Secret.from(value)` wraps an existing value.
+- `Secret.fromEnv(name)` reads the value from an environment variable and throws if it is missing.
+- `Secret.reveal(secret)` returns the original value when you need to hand it to an API client.
+- String coercion, `JSON.stringify()`, and Node inspection output are redacted.
+
 ## Filesystem Collections
 
 Collections default to `source: "fs"`, so local content only needs a name and a path.
