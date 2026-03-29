@@ -241,7 +241,7 @@ describe("Collection", () => {
 				async readDir() {
 					return [
 						"/blog/posts/hello-world",
-						"/blog/posts/hello-world.md",
+						"/blog/posts/hello-world",
 					];
 				},
 				async readFile() {
@@ -250,7 +250,7 @@ describe("Collection", () => {
 			},
 		});
 
-		await expect(collection.getEntries()).rejects.toThrow('Duplicate slug "hello-world"');
+		await expect(collection.getEntries()).rejects.toThrow('Duplicate slug "/blog/posts/hello-world"');
 	});
 
 	test("requires an adapter when source is remote", () => {

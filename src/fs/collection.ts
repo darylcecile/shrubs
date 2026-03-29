@@ -60,18 +60,15 @@ export class Collection<N extends string, A, B> {
 
 		const adapter = this.#init.adapter!;
 		await adapter.connect?.();
-		const keys = await adapter.readDir(this.#init.path);
+		const slugs = await adapter.readDir(this.#init.path);
 
 		this.#adapterSlugMap = new Map();
-		for (const key of keys) {
-			const fileName = key.split('/').pop() || key;
-			const slug = fileName.replace(/\.mdx?$/, '');
-
+		for (const slug of slugs) {
 			if (this.#adapterSlugMap.has(slug)) {
 				throw new Error(`🚨 Duplicate slug "${slug}" found in collection "${this.#init.name}". Make sure all entries have unique slugs.`);
 			}
 
-			this.#adapterSlugMap.set(slug, key);
+			this.#adapterSlugMap.set(slug, slug);
 		}
 
 		return this.#adapterSlugMap;
